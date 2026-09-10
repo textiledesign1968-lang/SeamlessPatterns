@@ -1,41 +1,62 @@
 import streamlit as st
-import torch
-from diffusers import AutoPipelineForText2Image
+import requests
 from PIL import Image
+import numpy as np
 import io
 
 st.set_page_config(page_title="AI Seamless Pattern Generator", layout="wide")
 
 # -----------------------------
-# Load SDXL Tile Diffusion Model
+# User API Key
 # -----------------------------
-@st.cache_resource
-def load_model():
-    pipe = AutoPipelineForText2Image.from_pretrained(
-        "stabilityai/sdxl-tile-controlnet",
-        torch_dtype=torch.float16,
-        variant="fp16",
-        use_safetensors=True
-    ).to("cuda")
-    return pipe
-
-pipe = load_model()
+st.sidebar.title("API Settings")
+api_key = st.sidebar.text_input("Enter your Stability API Key", type="password")
 
 # -----------------------------
-# Generate Seamless Tile
+# Generate image via API
 # -----------------------------
-def generate_seamless_tile(prompt):
-    result = pipe(
-        prompt=prompt,
-        guidance_scale=7.5,
-        tile_size=1024,       # TRUE seamless generation
-        tile_overlap=128,     # smooth edges
-        num_inference_steps=40
-    )
-    return result.images[0]
+def generate_image(prompt, api_key):
+    url = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "image/png"
+    }
+    data = {
+        "prompt": prompt,
+        "aspect_ratio": "1:1",
+        "output_format": "png"
+    }
+
+    response = requests.post(url, headers=headers, files=None, data=data)
+
+    if response.status_code == 200:
+        return Image.open(io.BytesIO(response.content))
+    else:
+        st.error("API Error: " + response.text)
+        return None
 
 # -----------------------------
-# Create Repeat Preview Grid
+# Make image seamless
+# -----------------------------
+def make_seamless(img):
+    w, h = img.size
+    arr = np.array(img)
+
+    # Shift image by half
+    arr = np.roll(arr, shift=w//2, axis=1)
+    arr = np.roll(arr, shift=h//2, axis=0)
+
+    # Blend seams
+    blend = arr.copy()
+    blend[:, :20] = arr[:, :20] // 2 + arr[:, -20:] // 2
+    blend[:, -20:] = arr[:, :20] // 2 + arr[:, -20:] // 2
+    blend[:20, :] = arr[:20, :] // 2 + arr[-20:, :] // 2
+    blend[-20:, :] = arr[:20, :] // 2 + arr[-20:, :] // 2
+
+    return Image.fromarray(blend)
+
+# -----------------------------
+# Repeat preview grid
 # -----------------------------
 def make_preview(tile, repeat=4):
     w, h = tile.size
@@ -48,25 +69,18 @@ def make_preview(tile, repeat=4):
 # -----------------------------
 # UI
 # -----------------------------
-st.title("🎨 AI Seamless Pattern Generator")
+st.title("🎨 AI Seamless Pattern Generator (Streamlit Cloud Compatible)")
 st.write("Create commercial‑grade seamless patterns from text prompts.")
 
 prompt = st.text_input("Enter your prompt:", "pastel daisy floral, kawaii, crisp edges, modern minimal")
 generate = st.button("Generate Pattern")
 
 if generate:
-    with st.spinner("Generating seamless pattern…"):
-        tile = generate_seamless_tile(prompt)
+    if not api_key:
+        st.error("Please enter your Stability API key in the sidebar.")
+    else:
+        with st.spinner("Generating image…"):
+            img = generate_image(prompt, api_key)
 
-    st.subheader("Seamless Tile")
-    st.image(tile, use_column_width=True)
-
-    preview = make_preview(tile, repeat=4)
-
-    st.subheader("Repeat Preview")
-    st.image(preview, use_column_width=True)
-
-    # Download tile
-    buf = io.BytesIO()
-    tile.save(buf, format="PNG")
-    st.download_button("Download Seamless Tile", buf.getvalue(), "seamless_tile.png")
+        if img:
+            st
