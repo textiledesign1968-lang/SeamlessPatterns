@@ -7,27 +7,29 @@ import io
 st.set_page_config(page_title="AI Seamless Pattern Generator", layout="wide")
 
 # -----------------------------
-# User API Key
+# API Key Input
 # -----------------------------
 st.sidebar.title("API Settings")
 api_key = st.sidebar.text_input("Enter your Stability API Key", type="password")
 
 # -----------------------------
-# Generate image via API
+# Generate image via Stability API (Correct Format)
 # -----------------------------
 def generate_image(prompt, api_key):
     url = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
+
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Accept": "image/png"
-    }
-    data = {
-        "prompt": prompt,
-        "aspect_ratio": "1:1",
-        "output_format": "png"
+        "Accept": "image/*"
     }
 
-    response = requests.post(url, headers=headers, files=None, data=data)
+    files = {
+        "prompt": (None, prompt),
+        "aspect_ratio": (None, "1:1"),
+        "output_format": (None, "png")
+    }
+
+    response = requests.post(url, headers=headers, files=files)
 
     if response.status_code == 200:
         return Image.open(io.BytesIO(response.content))
@@ -42,11 +44,9 @@ def make_seamless(img):
     w, h = img.size
     arr = np.array(img)
 
-    # Shift image by half
     arr = np.roll(arr, shift=w//2, axis=1)
     arr = np.roll(arr, shift=h//2, axis=0)
 
-    # Blend seams
     blend = arr.copy()
     blend[:, :20] = arr[:, :20] // 2 + arr[:, -20:] // 2
     blend[:, -20:] = arr[:, :20] // 2 + arr[:, -20:] // 2
@@ -69,10 +69,10 @@ def make_preview(tile, repeat=4):
 # -----------------------------
 # UI
 # -----------------------------
-st.title("🎨 AI Seamless Pattern Generator (Streamlit Cloud Compatible)")
+st.title("🎨 AI Seamless Pattern Generator (Stability API)")
 st.write("Create commercial‑grade seamless patterns from text prompts.")
 
-prompt = st.text_input("Enter your prompt:", "pastel daisy floral, kawaii, crisp edges, modern minimal")
+prompt = st.text_input("Enter your prompt:", "elegant tropical leaves, monstera, banana leaf, palm fronds, crisp edges, modern minimal")
 generate = st.button("Generate Pattern")
 
 if generate:
@@ -83,4 +83,19 @@ if generate:
             img = generate_image(prompt, api_key)
 
         if img:
-            st
+            st.subheader("Original AI Image")
+            st.image(img, use_column_width=True)
+
+            seamless = make_seamless(img)
+
+            st.subheader("Seamless Tile")
+            st.image(seamless, use_column_width=True)
+
+            preview = make_preview(seamless, repeat=4)
+
+            st.subheader("Repeat Preview")
+            st.image(preview, use_column_width=True)
+
+            buf = io.BytesIO()
+            seamless.save(buf, format="PNG")
+            st.download_button("Download Seamless Tile", buf.getvalue(), "seamless_tile.png")
